@@ -29,12 +29,12 @@ defmodule ReverseProxyPlug do
 
   @spec call(Plug.Conn.t(), Keyword.t()) :: Plug.Conn.t()
   def call(conn, opts) do
-    {body, type} = read_body(conn)
-    conn |> request(body, opts, type) |> response(conn, opts)
+    {body, new_content_type} = read_body(conn)
+    conn |> request(body, opts, new_content_type) |> response(conn, opts)
   end
 
-  def request(conn, body, opts, type) do
-    {method, url, headers, client_options} = prepare_request(conn, opts, type) |> IO.inspect()
+  def request(conn, body, opts, new_content_type) do
+    {method, url, headers, client_options} = prepare_request(conn, opts, new_content_type)
 
     opts[:client].request(
       method,
@@ -147,7 +147,7 @@ defmodule ReverseProxyPlug do
     end
   end
 
-  defp prepare_request(conn, options, content_type) do
+  defp prepare_request(conn, options, new_content_type) do
     method = conn.method |> String.downcase() |> String.to_atom()
     url = prepare_url(conn, options)
 
@@ -161,7 +161,7 @@ defmodule ReverseProxyPlug do
         else: List.keyreplace(headers, "host", 0, {"host", host_header_from_url(url)})
 
     headers =
-      List.keyreplace(headers, "content-type", 0, {"content-type", content_type})
+      List.keyreplace(headers, "content-type", 0, {"content-type", new_content_type})
 
     client_options =
       options[:response_mode]

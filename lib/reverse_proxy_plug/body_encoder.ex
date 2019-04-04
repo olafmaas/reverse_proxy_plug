@@ -1,15 +1,14 @@
 defmodule ReverseProxyPlug.BodyEncoder do
 
-  @spec encode(binary(), any()) :: {binary() | tuple(), binary()}
+  @spec encode({binary(), binary()}, map()) :: {tuple() | binary(), binary()}
   def encode({_, "multipart/" <> _subtype = type}, body_params) do
-    #TODO: Subtype sanitation
-    actual_type = type |> String.split(";") |> Enum.at(0) |> IO.inspect()
+    actual_type = type |> String.split(";") |> Enum.at(0)
 
     {
       {
         :multipart,
         Enum.map(body_params, &encode_multipart/1)
-      } |> IO.inspect(),
+      },
       actual_type
     }
   end
