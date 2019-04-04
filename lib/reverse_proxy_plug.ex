@@ -4,6 +4,7 @@ defmodule ReverseProxyPlug do
   """
 
   alias Plug.Conn
+  alias ReverseProxyPlug.BodyEncoder
 
   @behaviour Plug
   @http_client HTTPoison
@@ -28,12 +29,12 @@ defmodule ReverseProxyPlug do
 
   @spec call(Plug.Conn.t(), Keyword.t()) :: Plug.Conn.t()
   def call(conn, opts) do
-    body = read_body(conn)
-    conn |> request(body, opts) |> response(conn, opts)
+    {body, type} = read_body(conn)
+    conn |> request(body, opts, type) |> response(conn, opts)
   end
 
-  def request(conn, body, opts) do
-    {method, url, headers, client_options} = prepare_request(conn, opts)
+  def request(conn, body, opts, type) do
+    {method, url, headers, client_options} = prepare_request(conn, opts, type) |> IO.inspect()
 
     opts[:client].request(
       method,
@@ -146,7 +147,7 @@ defmodule ReverseProxyPlug do
     end
   end
 
-  defp prepare_request(conn, options) do
+  defp prepare_request(conn, options, content_type) do
     method = conn.method |> String.downcase() |> String.to_atom()
     url = prepare_url(conn, options)
 
@@ -158,6 +159,9 @@ defmodule ReverseProxyPlug do
       if options[:preserve_host_header],
         do: headers,
         else: List.keyreplace(headers, "host", 0, {"host", host_header_from_url(url)})
+
+    headers =
+      List.keyreplace(headers, "content-type", 0, {"content-type", content_type})
 
     client_options =
       options[:response_mode]
@@ -206,34 +210,43 @@ defmodule ReverseProxyPlug do
     |> Enum.reject(fn {header, _} -> Enum.member?(hop_by_hop_headers, header) end)
   end
 
-  defp read_body(conn) do
-    case Conn.read_body(conn) do
-      {:ok, body, _conn} ->
-        body
+  defp read_body(%_{body_params: %Plug.Conn.Unfetched{}, req_headers: req_headers} = conn) do
+    {
+      case Conn.read_body(conn) do
+        {:ok, body, _conn} ->
+          body
 
-      {:more, body, conn} ->
-        {:stream,
-         Stream.resource(
-           fn -> {body, conn} end,
-           fn
-             {body, conn} ->
-               {[body], conn}
+        {:more, body, conn} ->
+          {:stream,
+          Stream.resource(
+            fn -> {body, conn} end,
+            fn
+              {body, conn} ->
+                {[body], conn}
 
-             nil ->
-               {:halt, nil}
+              nil ->
+                {:halt, nil}
 
-             conn ->
-               case Conn.read_body(conn) do
-                 {:ok, body, _conn} ->
-                   {[body], nil}
+              conn ->
+                case Conn.read_body(conn) do
+                  {:ok, body, _conn} ->
+                    {[body], nil}
 
-                 {:more, body, conn} ->
-                   {[body], conn}
-               end
-           end,
-           fn _ -> nil end
-         )}
-    end
+                  {:more, body, conn} ->
+                    {[body], conn}
+                end
+            end,
+            fn _ -> nil end
+          )}
+      end,
+      List.keyfind(req_headers, "content-type", 0)
+    }
+  end
+
+  defp read_body(%_{body_params: body_params, req_headers: req_headers}) do
+    req_headers
+    |> List.keyfind("content-type", 0)
+    |> BodyEncoder.encode(body_params)
   end
 
   defp host_header_from_url(url) when is_binary(url) do
@@ -255,4 +268,5 @@ defmodule ReverseProxyPlug do
   defp host_header_from_url(%URI{host: host, port: port, scheme: "http"}) do
     "#{host}:#{port}"
   end
+
 end
