@@ -13,7 +13,7 @@ defmodule ReverseProxyPlug.BodyEncoder do
     }
   end
 
-  def encode({_, _type}, body_params) do
+  def encode(_, body_params) do
     body = Poison.encode!(body_params)
 
     {body, "application/json"}
